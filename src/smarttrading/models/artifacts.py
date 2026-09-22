@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class ModelStatus(StrEnum):
     CANDIDATE = "candidate"
+    SHADOW = "shadow"
     PAPER = "paper"
     RETIRED = "retired"
 
@@ -116,6 +117,15 @@ class ModelRegistry:
         self._connection.execute(
             "UPDATE models SET status=?,promoted_at=? WHERE model_version=?",
             (ModelStatus.PAPER, datetime.now(UTC).isoformat(), model_version),
+        )
+        self._connection.commit()
+
+    def promote_to_shadow(self, model_version: str) -> None:
+        if self.status(model_version) is not ModelStatus.CANDIDATE:
+            raise ValueError("only CANDIDATE artifacts can enter SHADOW")
+        self._connection.execute(
+            "UPDATE models SET status=?,promoted_at=? WHERE model_version=?",
+            (ModelStatus.SHADOW, datetime.now(UTC).isoformat(), model_version),
         )
         self._connection.commit()
 

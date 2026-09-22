@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import csv
 import json
+import logging
 import os
 import signal
 from datetime import UTC, datetime, timedelta
@@ -14,6 +15,7 @@ from smarttrading.backtest.engine import BacktestEngine, BacktestResult, Backtes
 from smarttrading.config import load_settings
 from smarttrading.data.csv import load_bars_csv
 from smarttrading.data.manifest import build_manifest
+from smarttrading.data.market_store import MarketDataStore, inspect_storage
 from smarttrading.data.realtime import TIMEFRAME_DELTA, CandleEvent
 from smarttrading.exchanges.binance_public import BinancePublicData
 from smarttrading.exchanges.binance_stream import BinanceClosedCandleProvider, ResilientCandleStream
@@ -25,6 +27,7 @@ from smarttrading.models.artifacts import ModelArtifact, ModelRegistry
 from smarttrading.models.ensemble import EnsembleConfig, WeightedEnsemble
 from smarttrading.models.experiment import render_experiment, run_experiment, run_final_evaluation
 from smarttrading.models.freeze import freeze_real_artifact
+from smarttrading.monitoring.runtime import InstanceGuard, log_event, runtime_logger
 from smarttrading.paper.engine import PaperTradingEngine
 from smarttrading.paper.forward import (
     ExperimentLock,
@@ -36,6 +39,12 @@ from smarttrading.paper.forward import (
 )
 from smarttrading.paper.journal import DecisionRecord, explain
 from smarttrading.paper.persistence import PaperStore
+from smarttrading.paper.shadow_v2 import (
+    health_assessment,
+    readiness_assessment,
+    run_shadow_command,
+    shadow_status,
+)
 from smarttrading.portfolio.sizing import FixedFractionSizer
 from smarttrading.risk.manager import IndependentRiskManager
 from smarttrading.strategies.baselines import (
@@ -238,12 +247,31 @@ def _paper_smoke(args: argparse.Namespace) -> None:
 
 
 async def _paper_run_async(args: argparse.Namespace) -> None:
+    logger = logging.getLogger("smarttrading.paper.runner")
     settings = load_settings(args.config)
     artifact_paths = tuple(args.artifact)
     artifacts = tuple(
         ModelArtifact.load(path, json.loads(Path(path).read_text())["feature_version"])
         for path in artifact_paths
     )
+    for artifact in artifacts:
+        log_event(
+            logger,
+            logging.INFO,
+            "artifact_loaded",
+            model=artifact.model_name,
+            model_version=artifact.model_version,
+            feature_version=artifact.feature_version,
+        )
+    for artifact in artifacts:
+        log_event(
+            logger,
+            logging.INFO,
+            "artifact_loaded",
+            model_name=artifact.model_name,
+            model_version=artifact.model_version,
+            feature_version=artifact.feature_version,
+        )
     experiment = (
         FrozenExperimentConfig.model_validate_json(
             Path(args.experiment_config).read_text(encoding="utf-8")
@@ -251,7 +279,15 @@ async def _paper_run_async(args: argparse.Namespace) -> None:
         if args.experiment_config
         else None
     )
+    if experiment is not None:
+        log_event(logger, logging.INFO, "experiment", experiment_id=experiment.experiment_id)
     store = PaperStore(args.database)
+    log_event(
+        logger,
+        logging.INFO,
+        "experiment_selected",
+        experiment_id=experiment.experiment_id if experiment is not None else None,
+    )
     engine = PaperTradingEngine(
         settings,
         store,
@@ -274,6 +310,7 @@ async def _paper_run_async(args: argparse.Namespace) -> None:
         experiment=experiment,
     )
     provider = BinanceClosedCandleProvider(tuple(args.assets), args.timeframe)
+    log_event(logger, logging.INFO, "subscription", assets=args.assets, timeframe=args.timeframe)
 
     async def reconcile() -> list[CandleEvent]:
         now = datetime.now(UTC)
@@ -328,9 +365,54 @@ async def _paper_run_async(args: argparse.Namespace) -> None:
                     key=lambda bar: bar.timestamp,
                 )
             )
+        log_event(logger, logging.INFO, "feed_connected", feed="binance_kline")
         async for event in stream.events():
             engine.reconnects = stream.reconnects
-            engine.process(event)
+            log_event(
+                logger,
+                logging.INFO,
+                "candle_close",
+                asset=event.bar.asset,
+                timestamp=event.bar.timestamp.isoformat(),
+            )
+            record = engine.process(event)
+            if record is not None:
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "prediction",
+                    asset=record.asset,
+                    models=record.model_predictions,
+                )
+                level = logging.INFO if record.decision.value != "abstain" else logging.DEBUG
+                log_event(
+                    logger,
+                    level,
+                    "decision",
+                    asset=record.asset,
+                    action=record.decision.value,
+                    decision_id=record.decision_id,
+                )
+                if record.decision.value == "abstain":
+                    log_event(logger, logging.INFO, "ABSTAIN", asset=record.asset)
+                if record.risk_decision:
+                    risk_status = str(record.risk_decision.get("status", ""))
+                    if risk_status in {"rejected", "resized"}:
+                        log_event(
+                            logger,
+                            logging.WARNING,
+                            f"risk_{risk_status}",
+                            asset=record.asset,
+                            detail=record.risk_decision,
+                        )
+                if record.order_id:
+                    log_event(
+                        logger, logging.INFO, "order", order_id=record.order_id, asset=record.asset
+                    )
+                if record.fill_id:
+                    log_event(
+                        logger, logging.INFO, "fill", fill_id=record.fill_id, asset=record.asset
+                    )
             processed += 1
             if args.max_events and processed >= args.max_events:
                 break
@@ -435,15 +517,31 @@ def _freeze_model(args: argparse.Namespace) -> None:
 
 
 def _paper_run(args: argparse.Namespace) -> None:
-    pid_path = Path(args.pid_file) if args.pid_file else None
-    if pid_path is not None:
-        pid_path.parent.mkdir(parents=True, exist_ok=True)
-        pid_path.write_text(str(os.getpid()), encoding="utf-8")
+    logger = runtime_logger(
+        "smarttrading.paper.runner",
+        level=args.log_level,
+        log_file=args.log_file,
+        max_bytes=args.log_max_bytes,
+        backups=args.log_backups,
+    )
+    guard = InstanceGuard(args.pid_file or f"{args.database}.pid")
+    guard.acquire()
+    log_event(
+        logger,
+        logging.INFO,
+        "process_startup",
+        process_id=os.getpid(),
+        database=args.database,
+        artifacts=args.artifact,
+    )
     try:
         asyncio.run(_paper_run_async(args))
+    except Exception:
+        logger.exception("fatal_error")
+        raise
     finally:
-        if pid_path is not None:
-            pid_path.unlink(missing_ok=True)
+        guard.release()
+        log_event(logger, logging.INFO, "graceful_shutdown", process_id=os.getpid())
 
 
 def _paper_status(args: argparse.Namespace) -> None:
@@ -536,6 +634,10 @@ def main() -> None:
     run.add_argument("--max-events", type=int, default=0)
     run.add_argument("--experiment-config")
     run.add_argument("--pid-file")
+    run.add_argument("--log-file", default="logs/paper.log")
+    run.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
+    run.add_argument("--log-max-bytes", type=int, default=10 * 1024 * 1024)
+    run.add_argument("--log-backups", type=int, default=5)
     status = paper_commands.add_parser("status")
     status.add_argument("--database", default="data/paper.db")
     explain_command = commands.add_parser("explain")
@@ -572,6 +674,42 @@ def main() -> None:
     export.add_argument("--database", default="data/forward_v1.db")
     export.add_argument("--output", required=True)
     export.add_argument("--artifact", action="append", default=[])
+    shadow = commands.add_parser("shadow")
+    shadow_commands = shadow.add_subparsers(dest="shadow_command", required=True)
+    shadow_run = shadow_commands.add_parser("run")
+    shadow_run.add_argument("--database", default="data/shadow_v2.db")
+    shadow_run.add_argument("--assets", nargs="+", default=["BTC/USDT", "ETH/USDT"])
+    shadow_run.add_argument("--max-events", type=int)
+    shadow_run.add_argument("--max-seconds", type=float)
+    shadow_run.add_argument("--pid-file")
+    shadow_run.add_argument("--log-file", default="logs/shadow_v2.log")
+    shadow_run.add_argument(
+        "--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO"
+    )
+    shadow_run.add_argument("--log-max-bytes", type=int, default=10 * 1024 * 1024)
+    shadow_run.add_argument("--log-backups", type=int, default=5)
+    shadow_run.add_argument("--trade-bucket-seconds", type=int, default=1)
+    shadow_run.add_argument("--bbo-sample-seconds", type=int, default=1)
+    shadow_run.add_argument("--derived-snapshot-seconds", type=int, default=1)
+    shadow_run.add_argument("--book-checkpoint-seconds", type=int, default=60)
+    shadow_run.add_argument("--book-checkpoint-levels", type=int, default=20)
+    shadow_run.add_argument("--raw-retention-days", type=int, default=7)
+    shadow_run.add_argument("--storage-warning-mb-hour", type=float, default=100.0)
+    shadow_run.add_argument("--storage-degraded-mb-hour", type=float, default=250.0)
+    shadow_run.add_argument(
+        "--no-suspend-raw-on-degraded", action="store_false", dest="suspend_raw_on_degraded"
+    )
+    for name in ("status", "health", "coverage", "readiness", "retention", "storage"):
+        command = shadow_commands.add_parser(name)
+        command.add_argument("--database", default="data/shadow_v2.db")
+        if name == "readiness":
+            command.add_argument("--minimum-hours", type=float, default=24)
+            command.add_argument("--minimum-snapshots", type=int, default=1000)
+            command.add_argument("--minimum-completeness", type=float, default=0.9)
+            command.add_argument("--minimum-book-validity", type=float, default=0.95)
+        if name == "retention":
+            command.add_argument("--raw-days", type=int, default=7)
+            command.add_argument("--snapshot-days", type=int, default=30)
     args = parser.parse_args()
     if args.command == "backtest":
         _backtest(args)
@@ -595,6 +733,55 @@ def main() -> None:
             _promote_model(args)
         else:
             _freeze_model(args)
+    elif args.command == "shadow":
+        if args.shadow_command == "run":
+            run_shadow_command(
+                args.database,
+                tuple(args.assets),
+                args.max_events,
+                args.max_seconds,
+                pid_file=args.pid_file,
+                log_file=args.log_file,
+                log_level=args.log_level,
+                log_max_bytes=args.log_max_bytes,
+                log_backups=args.log_backups,
+                trade_bucket_seconds=args.trade_bucket_seconds,
+                bbo_sample_seconds=args.bbo_sample_seconds,
+                derived_snapshot_seconds=args.derived_snapshot_seconds,
+                book_checkpoint_seconds=args.book_checkpoint_seconds,
+                book_checkpoint_levels=args.book_checkpoint_levels,
+                raw_retention_days=args.raw_retention_days,
+                storage_warning_mb_hour=args.storage_warning_mb_hour,
+                storage_degraded_mb_hour=args.storage_degraded_mb_hour,
+                suspend_raw_on_degraded=args.suspend_raw_on_degraded,
+            )
+        elif args.shadow_command == "status":
+            print(json.dumps(shadow_status(args.database), indent=2, default=str))
+        elif args.shadow_command == "health":
+            code, health_report = health_assessment(shadow_status(args.database))
+            print(json.dumps(health_report, indent=2, default=str))
+            raise SystemExit(code)
+        elif args.shadow_command == "storage":
+            print(json.dumps(inspect_storage(args.database), indent=2, default=str))
+        else:
+            store = MarketDataStore(args.database)
+            try:
+                coverage = store.coverage()
+                if args.shadow_command == "coverage":
+                    output = coverage
+                elif args.shadow_command == "readiness":
+                    output = readiness_assessment(
+                        coverage,
+                        minimum_hours=args.minimum_hours,
+                        minimum_snapshots=args.minimum_snapshots,
+                        minimum_completeness=args.minimum_completeness,
+                        minimum_book_validity=args.minimum_book_validity,
+                    )
+                else:
+                    output = store.retention_dry_run(args.raw_days, args.snapshot_days)
+                print(json.dumps(output, indent=2, default=str))
+            finally:
+                store.close()
     elif args.experiment_command == "status":
         _experiment_status(args)
     elif args.experiment_command == "decisions":
