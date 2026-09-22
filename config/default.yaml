@@ -1,0 +1,27 @@
+mode: paper
+assets:
+  - BTC/USDT
+  - ETH/USDT
+timeframes:
+  - 5m
+  - 15m
+  - 1h
+base_currency: USDT
+initial_cash: 100000
+database:
+  url: sqlite:///data/smarttrading.db
+risk:
+  max_asset_allocation: 0.25
+  max_portfolio_exposure: 0.60
+  max_order_notional: 10000
+  max_daily_loss: 0.03
+  max_drawdown: 0.15
+  stale_data_seconds: 120
+  anomalous_price_deviation: 0.10
+execution:
+  maker_fee_bps: 2.0
+  taker_fee_bps: 5.0
+  spread_bps: 2.0
+  slippage_bps: 1.0
+  simulated_latency_ms: 100
+

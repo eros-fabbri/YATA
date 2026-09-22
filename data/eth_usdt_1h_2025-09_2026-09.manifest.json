@@ -1,0 +1,9 @@
+{
+  "dataset_id": "ETH-USDT-1h-d9385d4ee479",
+  "asset": "ETH/USDT",
+  "timeframe": "1h",
+  "start": "2025-09-01T00:00:00Z",
+  "end": "2026-09-01T00:00:00Z",
+  "rows": 8761,
+  "sha256": "d9385d4ee4793c739a1449b33247c7e7c1d716a3e4cb3ab18038e80247c20d62"
+}

@@ -1,0 +1,9 @@
+{
+  "dataset_id": "BTC-USDT-1h-6d61e0a4df9a",
+  "asset": "BTC/USDT",
+  "timeframe": "1h",
+  "start": "2025-09-01T00:00:00Z",
+  "end": "2026-09-01T00:00:00Z",
+  "rows": 8761,
+  "sha256": "6d61e0a4df9a0441114bf8cbc11a337288f49cfcff406fcf13ed90f53c554604"
+}

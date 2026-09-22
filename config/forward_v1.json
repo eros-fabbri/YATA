@@ -1,0 +1,62 @@
+{
+  "protocol_version": "forward-v1",
+  "assets": ["BTC/USDT", "ETH/USDT"],
+  "timeframe": "1h",
+  "artifact_versions": [
+    "d20f8746e2cbac68",
+    "aa070801f43e7d52",
+    "8abe284b5c797a1b",
+    "23b41608d8ab1c3a"
+  ],
+  "feature_version": "features-v1-ef85d5332160",
+  "target": {"prediction_horizon": 6, "return_threshold": 0.001},
+  "thresholds": {
+    "buy_threshold": 0.60,
+    "exit_threshold": 0.45,
+    "abstain_confidence": 0.20,
+    "disagreement_penalty": 1.0
+  },
+  "ensemble_weights": {
+    "logistic-btc": 0.5,
+    "gradient-btc": 0.5,
+    "logistic-eth": 0.5,
+    "gradient-eth": 0.5
+  },
+  "costs": {
+    "maker_fee_bps": 2.0,
+    "taker_fee_bps": 5.0,
+    "spread_bps": 2.0,
+    "slippage_bps": 1.0,
+    "simulated_latency_ms": 100
+  },
+  "sizing": {"max_asset_allocation": 0.25, "long_only": 1.0, "leverage": 0.0},
+  "risk_limits": {
+    "max_portfolio_exposure": 0.60,
+    "max_order_notional": 10000,
+    "max_daily_loss": 0.03,
+    "max_drawdown": 0.15,
+    "stale_data_seconds": 120,
+    "anomalous_price_deviation": 0.10
+  },
+  "starting_capital": "100000",
+  "shadow_strategies": [
+    "logistic-btc",
+    "gradient-btc",
+    "logistic-eth",
+    "gradient-eth",
+    "momentum-btc",
+    "momentum-eth",
+    "moving-average-btc",
+    "moving-average-eth",
+    "mean-reversion-btc",
+    "mean-reversion-eth",
+    "buy-and-hold-btc",
+    "buy-and-hold-eth"
+  ],
+  "drift_thresholds": {"psi_warning": 0.20, "ks_warning": 0.10, "calibration_warning": 0.10},
+  "evaluation_metrics": [
+    "roc_auc", "pr_auc", "brier_score", "log_loss", "balanced_accuracy",
+    "calibration", "prediction_distribution", "abstention_rate"
+  ],
+  "configuration_frozen_at": "2026-09-22T10:15:00Z"
+}

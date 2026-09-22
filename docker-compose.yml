@@ -1,0 +1,26 @@
+services:
+  app:
+    build: .
+    environment:
+      SMARTTRADING__MODE: paper
+      SMARTTRADING__DATABASE__URL: postgresql+psycopg://smarttrading:smarttrading@postgres/smarttrading
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: smarttrading
+      POSTGRES_USER: smarttrading
+      POSTGRES_PASSWORD: smarttrading
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smarttrading"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+
