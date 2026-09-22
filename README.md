@@ -15,13 +15,16 @@ invariants and deferred decisions, and [docs/PLAN.md](docs/PLAN.md) for the mile
 
 ## Requirements and setup
 
-Python 3.12+ is required. With `uv` installed:
+Python 3.12+ is required. With `uv` installed, synchronize the local package and the default
+development dependency group:
 
 ```bash
-uv venv --python 3.12
-uv pip install '.[dev]'
-source .venv/bin/activate
+uv sync
 ```
+
+`uv sync --no-dev` installs only the runtime environment. Use ordinary `uv sync` (or explicitly
+`uv sync --group dev`) for development. The package is installed from `src/` and exposes the
+`smarttrading` console script; no `pip` or `PYTHONPATH` step is needed.
 
 Copy `.env.example` to `.env` for local overrides; never add credentials to versioned YAML.
 The default configuration is `config/default.yaml` and defaults to paper mode.
@@ -29,10 +32,10 @@ The default configuration is `config/default.yaml` and defaults to paper mode.
 ## Quality checks
 
 ```bash
-pytest
-ruff check .
-ruff format --check .
-mypy
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy
 ```
 
 The same checks can run without a local Python installation:

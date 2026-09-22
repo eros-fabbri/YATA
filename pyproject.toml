@@ -23,7 +23,7 @@ dependencies = [
   "websockets>=14,<17",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
   "mypy>=1.11,<2",
   "pytest>=8.3,<9",
@@ -33,11 +33,18 @@ dev = [
   "pandas-stubs>=2.2,<3",
 ]
 
+[tool.uv]
+package = true
+
 [project.scripts]
 smarttrading = "smarttrading.cli:main"
 
+[tool.setuptools]
+package-dir = {"" = "src"}
+
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["smarttrading*"]
 
 [tool.setuptools.package-data]
 smarttrading = ["py.typed"]
