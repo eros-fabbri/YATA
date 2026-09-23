@@ -6,6 +6,7 @@ import json
 import subprocess
 import time
 from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from rich.console import Console, Group
@@ -68,6 +69,62 @@ def _fmt(value: object, digits: int = 2) -> str:
     if isinstance(value, float):
         return f"{value:.{digits}f}"
     return str(value)
+
+
+def _decimal(value: object) -> Decimal | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    return parsed if parsed.is_finite() else None
+
+
+def _format_decimal(value: object, *, decimal_places: int) -> str:
+    parsed = _decimal(value)
+    if parsed is None:
+        return "N/A"
+    quantum = Decimal(1).scaleb(-decimal_places)
+    try:
+        rounded = parsed.quantize(quantum, rounding=ROUND_HALF_UP)
+    except InvalidOperation:
+        return "N/A"
+    if parsed != 0 and rounded == 0:
+        sign = "-" if parsed < 0 else ""
+        return f"{sign}<{format(quantum, 'f')}"
+    return format(rounded, "f").rstrip("0").rstrip(".") or "0"
+
+
+def format_market_price(value: object) -> str:
+    return _format_decimal(value, decimal_places=8)
+
+
+def format_funding(value: object) -> str:
+    parsed = _decimal(value)
+    if parsed is None:
+        return "N/A"
+    quantum = Decimal("0.00000001")
+    try:
+        rounded = parsed.quantize(quantum, rounding=ROUND_HALF_UP)
+    except InvalidOperation:
+        return "N/A"
+    if parsed != 0 and rounded == 0:
+        sign = "-" if parsed < 0 else ""
+        return f"{sign}<0.00000001"
+    return format(rounded, ".8f")
+
+
+def calculate_spread_bps(bid: object, ask: object) -> Decimal | None:
+    bid_value, ask_value = _decimal(bid), _decimal(ask)
+    if bid_value is None or ask_value is None or bid_value <= 0 or ask_value <= 0:
+        return None
+    midpoint = (ask_value + bid_value) / Decimal(2)
+    return (ask_value - bid_value) / midpoint * Decimal(10_000)
+
+
+def format_spread_bps(value: object) -> str:
+    return _format_decimal(value, decimal_places=8)
 
 
 def _health(snapshot: dict[str, Any] | None, *, v2: bool = False) -> str:
@@ -229,13 +286,8 @@ def _v2_panel(v2: dict[str, Any], rates: dict[str, Any]) -> Panel:
     for asset, raw in sorted(raw_assets.items()):
         item = _mapping(raw)
         bbo = _mapping(item.get("bbo"))
-        bid, ask = bbo.get("bid_price"), bbo.get("ask_price")
-        spread = None
-        try:
-            bid_f, ask_f = float(str(bid)), float(str(ask))
-            spread = (ask_f - bid_f) / ((ask_f + bid_f) / 2) * 10_000
-        except (TypeError, ValueError, ZeroDivisionError):
-            pass
+        bid, ask = bbo.get("bid"), bbo.get("ask")
+        spread = calculate_spread_bps(bid, ask)
         sources = _mapping(item.get("sources"))
         timestamps = [
             source.get("event_timestamp") for source in sources.values() if isinstance(source, dict)
@@ -243,13 +295,13 @@ def _v2_panel(v2: dict[str, Any], rates: dict[str, Any]) -> Panel:
         market_ts = max((str(value) for value in timestamps if value), default=None)
         assets.add_row(
             str(asset),
-            _fmt(bid),
-            _fmt(ask),
-            _fmt(spread, 2),
+            format_market_price(bid),
+            format_market_price(ask),
+            format_spread_bps(spread),
             _fmt(bbo.get("bid_quantity")),
             _fmt(bbo.get("ask_quantity")),
             "VALID" if item.get("book_valid") else "INVALID",
-            _fmt(item.get("funding")),
+            format_funding(item.get("funding")),
             _fmt(item.get("open_interest")),
             _age(market_ts),
         )

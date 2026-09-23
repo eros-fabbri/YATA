@@ -3,12 +3,24 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from io import StringIO
 from pathlib import Path
 
 import pytest
+from rich.console import Console
 
 from smarttrading.monitor.alerts import monitor_alerts
-from smarttrading.monitor.app import age_seconds, collect_snapshot, run_monitor
+from smarttrading.monitor.app import (
+    _v2_panel,
+    age_seconds,
+    calculate_spread_bps,
+    collect_snapshot,
+    format_funding,
+    format_market_price,
+    format_spread_bps,
+    run_monitor,
+)
 from smarttrading.monitor.rates import SessionRates
 from smarttrading.monitor.readers import read_v1, read_v2
 
@@ -78,13 +90,13 @@ def _v2_database(path: Path) -> None:
         "assets": {
             "BTC/USDT": {
                 "bbo": {
-                    "bid_price": "60000",
-                    "ask_price": "60001",
+                    "bid": "86486.38000000",
+                    "ask": "86486.39000000",
                     "bid_quantity": "1",
                     "ask_quantity": "2",
                 },
                 "book_valid": True,
-                "funding": "0.0001",
+                "funding": "0.00000937",
                 "open_interest": "100",
                 "sources": {},
             }
@@ -139,6 +151,67 @@ def test_timestamp_freshness_supports_timezone() -> None:
     now = datetime(2026, 1, 1, tzinfo=UTC)
     assert age_seconds("2025-12-31T23:59:55+00:00", now) == 5
     assert age_seconds("invalid", now) is None
+
+
+def test_v2_market_values_use_decimal_runtime_fields() -> None:
+    spread = calculate_spread_bps("86486.38000000", "86486.39000000")
+    assert spread is not None
+    assert spread == Decimal("0.01") / Decimal("86486.385") * Decimal(10_000)
+    assert format_market_price("86486.38000000") == "86486.38"
+    assert format_market_price("2756.57000000") == "2756.57"
+    assert format_spread_bps(spread) == "0.00115625"
+
+
+def test_funding_preserves_tiny_zero_and_missing_values() -> None:
+    assert format_funding("0.00000937") == "0.00000937"
+    assert format_funding("0.00007929") == "0.00007929"
+    assert format_funding("0") == "0.00000000"
+    assert format_funding(None) == "N/A"
+
+
+def test_invalid_or_missing_bbo_is_na_without_crashing() -> None:
+    assert calculate_spread_bps("invalid", "1") is None
+    assert calculate_spread_bps(None, None) is None
+    assert calculate_spread_bps("0", "1") is None
+    assert format_market_price("invalid") == "N/A"
+    assert format_market_price(None) == "N/A"
+    assert format_spread_bps(None) == "N/A"
+
+
+def test_extremely_tight_nonzero_spread_stays_visible() -> None:
+    spread = calculate_spread_bps("100000.00000000", "100000.00000001")
+    assert spread is not None and spread > 0
+    assert format_spread_bps(spread) != "0"
+
+
+def test_v2_panel_renders_real_bbo_shape_quantities_and_funding() -> None:
+    runtime = {
+        "available": True,
+        "database": "shadow.db",
+        "database_bytes": 1,
+        "runtime": {
+            "assets": {
+                "BTC/USDT": {
+                    "bbo": {
+                        "bid": "86486.38000000",
+                        "ask": "86486.39000000",
+                        "bid_quantity": "1.09100000",
+                        "ask_quantity": "7.69903000",
+                    },
+                    "book_valid": True,
+                    "funding": "0.00000937",
+                }
+            }
+        },
+    }
+    output = StringIO()
+    Console(file=output, width=120, color_system=None).print(_v2_panel(runtime, {}))
+    rendered = output.getvalue()
+    assert "86486.38" in rendered
+    assert "86486.39" in rendered
+    assert "1.09100000" in rendered
+    assert "7.69903000" in rendered
+    assert "0.00000937" in rendered
 
 
 def test_rates_and_counter_reset() -> None:
