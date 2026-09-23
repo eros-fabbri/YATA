@@ -27,6 +27,7 @@ from smarttrading.models.artifacts import ModelArtifact, ModelRegistry
 from smarttrading.models.ensemble import EnsembleConfig, WeightedEnsemble
 from smarttrading.models.experiment import render_experiment, run_experiment, run_final_evaluation
 from smarttrading.models.freeze import freeze_real_artifact
+from smarttrading.monitor import run_monitor
 from smarttrading.monitoring.runtime import InstanceGuard, log_event, runtime_logger
 from smarttrading.paper.engine import PaperTradingEngine
 from smarttrading.paper.forward import (
@@ -710,6 +711,14 @@ def main() -> None:
         if name == "retention":
             command.add_argument("--raw-days", type=int, default=7)
             command.add_argument("--snapshot-days", type=int, default=30)
+    monitor = commands.add_parser("monitor", help="read-only Forward V1 / Shadow V2 dashboard")
+    monitor.add_argument("--v1-db")
+    monitor.add_argument("--v2-db")
+    monitor.add_argument("--refresh", type=float, default=2.0)
+    monitor.add_argument("--once", action="store_true")
+    monitor_output_group = monitor.add_mutually_exclusive_group()
+    monitor_output_group.add_argument("--json", action="store_true", dest="json_output")
+    monitor_output_group.add_argument("--diagnostic", action="store_true", dest="diagnostic_output")
     args = parser.parse_args()
     if args.command == "backtest":
         _backtest(args)
@@ -733,6 +742,15 @@ def main() -> None:
             _promote_model(args)
         else:
             _freeze_model(args)
+    elif args.command == "monitor":
+        run_monitor(
+            v1_db=args.v1_db,
+            v2_db=args.v2_db,
+            refresh=args.refresh,
+            once=args.once,
+            json_output=args.json_output,
+            diagnostic_output=args.diagnostic_output,
+        )
     elif args.command == "shadow":
         if args.shadow_command == "run":
             run_shadow_command(

@@ -24,9 +24,9 @@
     "semantic_hash": "e0a4d2294f36cd45ee554f9b0581cfb2"
   },
   "pyproject.toml": {
-    "mtime": 1790076411.3947544,
-    "seen": 1790076442.019072,
-    "ast_hash": "2d7be117a3fcc155cfc73bd9bdf20fbf",
+    "mtime": 1790111970.2357078,
+    "seen": 1790112017.1494741,
+    "ast_hash": "729aed668ea9471d9e790c075f405419",
     "semantic_hash": ""
   },
   "scripts/create_smoke_artifact.py": {
@@ -66,9 +66,9 @@
     "semantic_hash": "e14e30b9b96c7807755348e7ff6f6915"
   },
   "src/smarttrading/cli.py": {
-    "mtime": 1790078727.1794643,
-    "seen": 1790098795.796881,
-    "ast_hash": "090bdd75f54ff9543fcf587af3802389",
+    "mtime": 1790111982.4815693,
+    "seen": 1790112017.149478,
+    "ast_hash": "3d6595199ff81ba90e90e144d2f4238d",
     "semantic_hash": ""
   },
   "src/smarttrading/common/__init__.py": {
@@ -687,6 +687,42 @@
     "mtime": 1790077131.3371592,
     "seen": 1790077865.438226,
     "ast_hash": "8f421d1516ad00703b6e1296c033885f",
+    "semantic_hash": ""
+  },
+  "src/smarttrading/monitor/__init__.py": {
+    "mtime": 1790111382.409982,
+    "seen": 1790112017.149494,
+    "ast_hash": "dc1440a6c8d5a25ce43f1e679fac42a6",
+    "semantic_hash": ""
+  },
+  "src/smarttrading/monitor/alerts.py": {
+    "mtime": 1790111939.2915533,
+    "seen": 1790112017.149494,
+    "ast_hash": "9af88e9c30c3efc859eadec7534acd3b",
+    "semantic_hash": ""
+  },
+  "src/smarttrading/monitor/app.py": {
+    "mtime": 1790111926.452644,
+    "seen": 1790112017.1494951,
+    "ast_hash": "758a2ef8dabc0729e820c3a7f65a7a47",
+    "semantic_hash": ""
+  },
+  "src/smarttrading/monitor/rates.py": {
+    "mtime": 1790111926.452324,
+    "seen": 1790112017.1494951,
+    "ast_hash": "2cd439f7fda077fdbcd3999d67f732c7",
+    "semantic_hash": ""
+  },
+  "src/smarttrading/monitor/readers.py": {
+    "mtime": 1790111892.5641115,
+    "seen": 1790112017.149496,
+    "ast_hash": "ed9511e7716cc760e8afb2f2ed1a33b8",
+    "semantic_hash": ""
+  },
+  "tests/test_monitor.py": {
+    "mtime": 1790111958.1491485,
+    "seen": 1790112017.1495109,
+    "ast_hash": "44c180e4ecb51ec1d61e2159ad3cf583",
     "semantic_hash": ""
   }
 }
